@@ -13,6 +13,17 @@ pipeline {
                 command:
                 - cat
                 tty: true
+                volumeMounts:
+                - name: jenkins-workspace
+                  mountPath: /var/jenkins
+              - name: jnlp
+                image: jenkins/inbound-agent:4.10-3
+                volumeMounts:
+                - name: jenkins-workspace
+                  mountPath: /var/jenkins
+              volumes:
+              - name: jenkins-workspace
+                emptyDir: {}
             """
         }
     }

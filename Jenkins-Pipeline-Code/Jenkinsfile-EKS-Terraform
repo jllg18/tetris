@@ -1,16 +1,43 @@
-properties([
-    parameters([
-        string(defaultValue: 'variables.tfvars', description: 'Specify the file name', name: 'File-Name'),
-        choice(choices: ['apply', 'destroy'], description: 'Select Terraform action', name: 'Terraform-Action')
-    ])
-])
-
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            label 'checkov-agent'
+            defaultContainer 'checkov'
+            yaml """
+            apiVersion: v1
+            kind: Pod
+            spec:
+              containers:
+              - name: checkov
+                image: bridgecrew/checkov:latest
+                command:
+                - cat
+                tty: true
+            """
+        }
+    }
+    
     stages {
-        stage('Checkout from Git') {
+        stage('Checkout') {
             steps {
-                git branch: 'master', url: 'https://github.com/AmanPathak-DevOps/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
+                git branch: 'master', url: 'https://github.com/jllg18/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
+                stash includes: '**/*', name: 'terraform-code'
+            }
+        }
+        stage('Checkov') {
+            steps {
+                container('checkov') {
+                    unstash 'terraform-code'
+                    script {
+                        try {
+                            sh 'checkov -d . --use-enforcement-rules -o cli -o junitxml --output-file-path console,results.xml --repo-id example/terragoat --branch master'
+                            junit skipPublishingChecks: true, testResults: 'results.xml'
+                        } catch (err) {
+                            junit skipPublishingChecks: true, testResults: 'results.xml'
+                            throw err
+                        }
+                    }
+                }
             }
         }
         stage('Initializing Terraform') {
@@ -66,5 +93,10 @@ pipeline {
                 }
             }
         }
+    }
+    
+    options {
+        preserveStashes()
+        timestamps()
     }
 }

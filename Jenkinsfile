@@ -42,9 +42,15 @@ pipeline {
                     script {
                         try {
                             sh 'checkov -d . --use-enforcement-rules -o cli -o junitxml --output-file-path console,results.xml --repo-id example/terragoat --branch main'
-                            junit skipPublishingChecks: true, testResults: 'results.xml'
+                            if (fileExists('results.xml')) {
+                                junit skipPublishingChecks: true, testResults: 'results.xml'
+                            } else {
+                                echo "results.xml not found. Skipping junit reporting."
+                            }
                         } catch (err) {
-                            junit skipPublishingChecks: true, testResults: 'results.xml'
+                            if (fileExists('results.xml')) {
+                                junit skipPublishingChecks: true, testResults: 'results.xml'
+                            }
                             throw err
                         }
                     }
@@ -54,41 +60,33 @@ pipeline {
         stage('Initializing Terraform') {
             steps {
                 withAWS(credentials: 'aws-key', region: 'us-east-1') {
-                dir('EKS-TF') {
-                    script {
+                    dir('EKS-TF') {
                         sh 'terraform init'
                     }
-                }
                 }
             }
         }
         stage('Validate Terraform Code') {
             steps {
                 withAWS(credentials: 'aws-key', region: 'us-east-1') {
-                dir('EKS-TF') {
-                    script {
+                    dir('EKS-TF') {
                         sh 'terraform validate'
                     }
-                }
                 }
             }
         }
         stage('Terraform Plan') {
             steps {
                 withAWS(credentials: 'aws-key', region: 'us-east-1') {
-                dir('EKS-TF') {
-                    script {
+                    dir('EKS-TF') {
                         sh "terraform plan -var-file=${params.'File-Name'}"
                     }
-                }
                 }
             }
         }
         stage('Terraform Action') {
             steps {
-                withAWS(credentials: 'aws-key', region: 'us-east-1') { 
-                script {
-                    echo "${params.'Terraform-Action'}"
+                withAWS(credentials: 'aws-key', region: 'us-east-1') {
                     dir('EKS-TF') {
                         script {
                             if (params.'Terraform-Action' == 'apply') {
@@ -100,7 +98,6 @@ pipeline {
                             }
                         }
                     }
-                }
                 }
             }
         }

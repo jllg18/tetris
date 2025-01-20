@@ -42,7 +42,7 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 echo "Inicializando Terraform..."
-                withAWS(credentials: 'aws-key', region: 'us-east-1') {
+                withAWS(credentials: 'terraform', region: 'us-east-1') {
                     dir('EKS-TF') {
                         // Modo detallado para diagnosticar errores
                         sh 'TF_LOG=DEBUG terraform init -input=false'

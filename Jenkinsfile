@@ -16,15 +16,15 @@ pipeline {
     }
 
     parameters {
-        string(name: 'File-Name', defaultValue: 'terraform.tfvars', description: 'Archivo de variables para Terraform')
+        string(name: 'File-Name', defaultValue: 'variables.tfvars', description: 'Archivo de variables para Terraform')
         choice(name: 'Terraform-Action', choices: ['apply', 'destroy'], description: 'Acción a ejecutar en Terraform')
     }
 
     stages {
         stage('Checkout') {
             steps {
-                echo "Clonando el repositorio..."
-                git branch: 'master', url: 'https://github.com/jllg18/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
+                echo "Clonando el repositorio desde la rama main..."
+                git branch: 'main', url: 'https://github.com/jllg18/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
                 stash includes: '**/*', name: 'terraform-code'
             }
         }
@@ -44,7 +44,8 @@ pipeline {
                 echo "Inicializando Terraform..."
                 withAWS(credentials: 'aws-key', region: 'us-east-1') {
                     dir('EKS-TF') {
-                        sh 'terraform init'
+                        // Modo detallado para diagnosticar errores
+                        sh 'TF_LOG=DEBUG terraform init -input=false'
                     }
                 }
             }

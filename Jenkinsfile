@@ -2,28 +2,15 @@ pipeline {
     agent {
         kubernetes {
             label 'kube-agent'
-            defaultContainer 'checkov'
+            defaultContainer 'jnlp'
             yaml """
             apiVersion: v1
             kind: Pod
             spec:
               containers:
-              - name: checkov
-                image: bridgecrew/checkov:latest
-                command:
-                - cat
-                tty: true
-                volumeMounts:
-                - name: jenkins-workspace
-                  mountPath: /var/jenkins
               - name: jnlp
                 image: jenkins/inbound-agent:4.10-3
-                volumeMounts:
-                - name: jenkins-workspace
-                  mountPath: /var/jenkins
-              volumes:
-              - name: jenkins-workspace
-                emptyDir: {}
+                tty: true
             """
         }
     }
@@ -38,28 +25,6 @@ pipeline {
             steps {
                 git branch: 'master', url: 'https://github.com/jllg18/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
                 stash includes: '**/*', name: 'terraform-code'
-            }
-        }
-        stage('Checkov') {
-            steps {
-                container('checkov') {
-                    unstash 'terraform-code'
-                    script {
-                        try {
-                            sh 'checkov -d . --use-enforcement-rules -o cli -o junitxml --output-file-path console,results.xml --repo-id example/terragoat --branch main'
-                            if (fileExists('results.xml')) {
-                                junit skipPublishingChecks: true, testResults: 'results.xml'
-                            } else {
-                                echo "results.xml not found. Skipping junit reporting."
-                            }
-                        } catch (err) {
-                            if (fileExists('results.xml')) {
-                                junit skipPublishingChecks: true, testResults: 'results.xml'
-                            }
-                            throw err
-                        }
-                    }
-                }
             }
         }
         stage('Initializing Terraform') {

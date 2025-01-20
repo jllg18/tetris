@@ -1,91 +1,85 @@
 pipeline {
-    agent {
-        kubernetes {
-            label 'kube-agent'
-            defaultContainer 'jnlp'
-            yaml """
-            apiVersion: v1
-            kind: Pod
-            spec:
-              containers:
-              - name: jnlp
-                image: jenkins/inbound-agent:4.10-3
-                tty: true
-            """
-        }
+    agent any
+
+    environment {
+        AWS_ACCESS_KEY_ID = credentials('terraform')  // Fetch AWS_ACCESS_KEY_ID from the 'terraform' credential
+        AWS_SECRET_ACCESS_KEY = credentials('terraform')  // Fetch AWS_SECRET_ACCESS_KEY from the 'terraform' credential
     }
 
-    parameters {
-        string(name: 'File-Name', defaultValue: 'variables.tfvars', description: 'Archivo de variables para Terraform')
-        choice(name: 'Terraform-Action', choices: ['apply', 'destroy'], description: 'Acción a ejecutar en Terraform')
+    tools {
+        terraform 'terraform'  // Usa la herramienta Terraform configurada en Jenkins
     }
 
     stages {
-        stage('Checkout') {
+        stage('Install Git') {
             steps {
-                echo "Clonando el repositorio desde la rama main..."
-                git branch: 'main', url: 'https://github.com/jllg18/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
-                stash includes: '**/*', name: 'terraform-code'
+                script {
+                    // Install Git if it is not already installed
+                    sh '''
+                    if ! git --version > /dev/null 2>&1; then
+                        echo "Git is not installed. Installing Git..."
+                        yum update -y || true  # Ensure the script does not exit on failure
+                        yum install git -y || true  # Install Git if not present
+                    else
+                        echo "Git is already installed."
+                    fi
+                    '''
+                }
             }
         }
 
-        stage('Setup Terraform Directory') {
+        stage('Checkout Code') {
             steps {
-                echo "Preparando el directorio EKS-TF..."
-                unstash 'terraform-code'
-                dir('EKS-TF') {
-                    sh 'ls -la'
+                script {
+                    withCredentials([string(credentialsId: 'githubToken', variable: 'GITHUB_TOKEN')]) {
+                        // Verifica si el directorio ya existe
+                        def repoDir = 'ADO_INFRA'
+                        if (fileExists(repoDir)) {
+                            echo "El repositorio ya está clonado en el directorio '${repoDir}'. Saltando clonación..."
+                        } else {
+                            echo "Clonando el repositorio en '${repoDir}'..."
+                            sh 'git clone https://${GITHUB_TOKEN}@github.com/jllg18/ADO_INFRA.git'
+                        }
+                    }
                 }
             }
         }
 
         stage('Terraform Init') {
             steps {
-                echo "Inicializando Terraform..."
-                withAWS(credentials: 'terraform', region: 'us-east-1') {
-                    dir('EKS-TF') {
-                        // Modo detallado para diagnosticar errores
-                        sh 'TF_LOG=DEBUG terraform init -input=false'
-                    }
-                }
-            }
-        }
-
-        stage('Terraform Validate') {
-            steps {
-                echo "Validando configuración de Terraform..."
-                withAWS(credentials: 'aws-key', region: 'us-east-1') {
-                    dir('EKS-TF') {
-                        sh 'terraform validate'
-                    }
+                dir('Transversales/ec2') {  // Navigate to the directory containing Terraform files
+                    sh 'terraform init'  // Initialize Terraform configuration
                 }
             }
         }
 
         stage('Terraform Plan') {
             steps {
-                echo "Generando plan de Terraform..."
-                withAWS(credentials: 'aws-key', region: 'us-east-1') {
-                    dir('EKS-TF') {
-                        sh "terraform plan -var-file=${params.'File-Name'}"
-                    }
+                dir('Transversales/ec2') {
+                    sh 'terraform plan -out=tfplan'  // Generate and output the Terraform plan to a file
                 }
             }
         }
 
-        stage('Terraform Apply/Destroy') {
+        stage('User Decision: Apply or Destroy') {
             steps {
-                echo "Ejecutando acción de Terraform..."
-                withAWS(credentials: 'aws-key', region: 'us-east-1') {
-                    dir('EKS-TF') {
-                        script {
-                            if (params.'Terraform-Action' == 'apply') {
-                                sh "terraform apply -auto-approve -var-file=${params.'File-Name'}"
-                            } else if (params.'Terraform-Action' == 'destroy') {
-                                sh "terraform destroy -auto-approve -var-file=${params.'File-Name'}"
-                            } else {
-                                error "Acción de Terraform no válida: ${params.'Terraform-Action'}"
-                            }
+                script {
+                    // Pregunta al usuario si desea aplicar o destruir la infraestructura
+                    def userInput = input(
+                        id: 'UserInput', message: '¿Qué quieres hacer después del plan?', parameters: [
+                            choice(name: 'ACTION', choices: 'apply\ndestroy', description: 'Selecciona la acción a realizar:')
+                        ]
+                    )
+
+                    if (userInput == 'apply') {
+                        // Ejecutar terraform apply
+                        dir('Transversales/ec2') {
+                            sh 'terraform apply -auto-approve tfplan'  // Apply the Terraform plan
+                        }
+                    } else if (userInput == 'destroy') {
+                        // Ejecutar terraform destroy
+                        dir('Transversales/ec2') {
+                            sh 'terraform destroy -auto-approve'  // Destroy the Terraform infrastructure
                         }
                     }
                 }
@@ -93,17 +87,18 @@ pipeline {
         }
     }
 
-    options {
-        preserveStashes()
-        timestamps()
-    }
-
     post {
+        always {
+            script {
+                echo 'Cleaning up workspace...'
+                deleteDir()  // Clean up the workspace after the job
+            }
+        }
         success {
-            echo "Pipeline completado exitosamente."
+            echo 'Pipeline completed successfully. Action completed successfully.'
         }
         failure {
-            echo "El pipeline falló. Revisa los logs para más detalles."
+            echo 'Pipeline failed. Check logs for details.'
         }
     }
 }

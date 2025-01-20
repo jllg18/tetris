@@ -1,7 +1,7 @@
 pipeline {
     agent {
         kubernetes {
-            label 'checkov-agent'
+            label 'kube-agent'
             defaultContainer 'checkov'
             yaml """
             apiVersion: v1
